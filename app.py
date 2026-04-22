@@ -25,18 +25,18 @@ if st.sidebar.button("開始分析"):
                 st.error("無法獲取數據，請檢查代碼是否正確。")
                 st.stop()
             
-            # 重置索引以符合我們類的格式
+            # 重置索引
             df.reset_index(inplace=True)
             
-            # 確保列名小寫 - 處理 MultiIndex 和 tuple 的情況
+            # 處理列名 - 支援 MultiIndex 和普通索引
             if isinstance(df.columns, pd.MultiIndex):
-                # 如果是 MultiIndex，展平它
+                # 展平 MultiIndex
                 df.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col for col in df.columns]
-            else:
-                # 普通列名，直接轉小寫
-                df.columns = [col.lower() if isinstance(col, str) else '_'.join(col).strip() if isinstance(col, tuple) else str(col) for col in df.columns]
             
-            # 處理多級索引問題 (yfinance有時會返回MultiIndex)
+            # 統一轉為小寫
+            df.columns = [col.lower() if isinstance(col, str) else '_'.join(map(str, col)).lower() if isinstance(col, tuple) else str(col).lower() for col in df.columns]
+            
+            # 刪除不需要的列
             if 'adj_close' in df.columns:
                 df.drop(columns=['adj_close'], inplace=True)
 
