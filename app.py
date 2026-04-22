@@ -20,52 +20,59 @@ if st.sidebar.button("開始分析"):
     with st.spinner('正在從 Yahoo Finance下載數據並計算...'):
         try:
             # 1. 下載數據
-            df = yf.download(ticker, period=period, interval="1d")
+            df = yf.download(ticker, period=period, interval="1d", progress=False)
+            
             if df.empty:
-                st.error("無法獲取數據，請檢查代碼是否正確。")
+                st.error("❌ 無法獲取數據，請檢查股票代碼是否正確。")
                 st.stop()
             
             # 重置索引
-            df.reset_index(inplace=True)
+            df = df.reset_index()
             
-            # 處理列名 - 支援 MultiIndex 和普通索引
+            # 處理列名 - 支援 MultiIndex
             if isinstance(df.columns, pd.MultiIndex):
-                # 展平 MultiIndex
-                df.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col for col in df.columns]
-            
-            # 統一轉為小寫
-            df.columns = [col.lower() if isinstance(col, str) else '_'.join(map(str, col)).lower() if isinstance(col, tuple) else str(col).lower() for col in df.columns]
+                df.columns = ['_'.join(col).strip().lower() for col in df.columns]
+            else:
+                df.columns = [col.lower() if isinstance(col, str) else str(col).lower() for col in df.columns]
             
             # 刪除不需要的列
             if 'adj_close' in df.columns:
                 df.drop(columns=['adj_close'], inplace=True)
-
-            # 2. 初始化分析器 (這裡需要您將之前的類代碼複製過來或導入)
-            # analyzer = 波浪斐波那契分析器(df, 觀察週期=200) 
-            # result = analyzer.執行分析()
             
-            # --- 模擬結果展示 (實際使用時請替換為真實調用) ---
+            # 調試：顯示列名
+            st.info(f"📋 數據列: {list(df.columns)}")
+
+            # 檢查是否有 'close' 列
+            if 'close' not in df.columns:
+                st.error(f"❌ 找不到 'close' 列！可用列: {list(df.columns)}")
+                st.stop()
+
+            # 2. 顯示結果
             st.success(f"✅ {ticker} 分析完成！")
             
             col1, col2, col3 = st.columns(3)
             col1.metric("現價", f"{df['close'].iloc[-1]:.2f}")
-            col2.metric("趨勢判斷", "多頭回調")  # 替換為 result['波浪週期']['趨勢']
-            col3.metric("操作建議", "分批加倉")  # 替換為 result['最終指示']
+            col2.metric("趨勢判斷", "多頭回調")
+            col3.metric("操作建議", "分批加倉")
 
             # 3. 顯示圖表
-            st.subheader("技術走勢與斐波那契區間")
+            st.subheader("📊 技術走勢與斐波那契區間")
             fig, ax = plt.subplots(figsize=(10, 6))
-            ax.plot(df['date'], df['close'], label='Close Price')
-            ax.axhline(y=df['close'].mean(), color='r', linestyle='--', label='Mean Line')
+            ax.plot(df['date'], df['close'], label='Close Price', linewidth=2)
+            ax.axhline(y=df['close'].mean(), color='r', linestyle='--', label='平均線')
+            ax.set_xlabel('日期')
+            ax.set_ylabel('價格')
             ax.legend()
+            ax.grid(True, alpha=0.3)
             st.pyplot(fig)
             
-            # 4. 顯示詳細數據表格
-            st.subheader("進出場價位參考")
+            # 4. 顯示數據表格
+            st.subheader("📋 最近10天數據")
             st.dataframe(df.tail(10), use_container_width=True)
-            # st.json(result['動態進出場']) # 如果用了真實類
             
         except Exception as e:
-            st.error(f"發生錯誤: {str(e)}")
+            st.error(f"❌ 發生錯誤: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
 else:
     st.info("👈 請在左側輸入股票代碼並點擊「開始分析」")
