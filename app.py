@@ -1,63 +1,125 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
+import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
-# 導入您之前寫的類 (假設保存為 wave_fib.py)
-# from wave_fib import 波浪斐波那契分析器 
+from scipy.signal import argrelextrema
+import yfinance as yf
+from datetime import datetime
+import warnings
+warnings.filterwarnings('ignore')
 
-st.set_page_config(page_title="股票波浪斐波那契分析", layout="wide")
-st.title("📈 智能股票技術分析系統 (Streamlit版)")
+# === 設置頁面配置 ===
+st.set_page_config(page_title="智能股票波浪分析", layout="wide", page_icon="📈")
 
-# 側邊欄輸入
-st.sidebar.header("參數設定")
-ticker = st.sidebar.text_input("股票代碼 (例如: 09988.HK, AAPL)", "09988.HK")
-period = st.sidebar.selectbox("歷史數據週期", ["1y", "2y", "5y"], index=1)
+# === 核心分析類 (完整內建，無需額外文件) ===
+class 波浪斐波那契分析器:
+    FIB_LEVELS = {'回撤支撐': [0.236, 0.382, 0.5, 0.618, 0.786], '擴展目標': [1.272, 1.414, 1.618, 2.0]}
+    
+    def __init__(self, df):
+        self.df = df.copy()
+        self.ATR值 = None
+        self.斐波區間 = {}
+        
+    def _計算均線(self):
+        for name, span in [('MA10',10), ('MA20',20), ('MA50',50), ('EMA120',120)]:
+            if 'MA' in name: self.df[name] = self.df['Close'].rolling(span).mean()
+            else: self.df[name] = self.df['Close'].ewm(span=span, adjust=False).mean()
 
-# 獲取數據按鈕
-if st.sidebar.button("開始分析"):
-    with st.spinner('正在從 Yahoo Finance下載數據並計算...'):
-        try:
-            # 1. 下載數據
-            df = yf.download(ticker, period=period, interval="1d")
-            if df.empty:
-                st.error("無法獲取數據，請檢查代碼是否正确。")
-                st.stop()
-            
-            # 重置索引以符合我們類的格式
-            df.reset_index(inplace=True)
-            # 確保列名小寫
-            df.columns = [col.lower() for col in df.columns]
-            # 處理多級索引問題 (yfinance有時會返回MultiIndex)
-            if 'adj close' in df.columns:
-                 df.drop(columns=['adj close'], inplace=True)
+    def _計算量價(self):
+        df = self.df
+        amp = (df['High'] - df['Low']).replace(0, np.nan)
+        df['VAR6'] = (np.abs(df['Open'] - df['Close']) / amp) * df['Volume']
+        df['VAR7'] = ((df['High'] - np.where(df['Close']>df['Open'], df['Close'], df['Open'])) / amp) * df['Volume']
+        df['VAR8'] = ((np.where(df['Close']>df['Open'], df['Open'], df['Close']) - df['Low']) / amp) * df['Volume']
+        df['量價信號'] = np.select([(df['VAR6']>=df['VAR7'])&(df['VAR6']>=df['VAR8'])&(df['Close']>df['Open']),
+                                    (df['VAR8']>df['VAR6'])&(df['VAR8']>df['VAR7'])], ['加倉', '洗盤'], default='觀望')
 
-            # 2. 初始化分析器 (這裡需要您將之前的類代碼複製過來或導入)
-            # 為了演示，這裡假設您已經將 '波浪斐波那契分析器' 類定義在這個文件或導入
-            # analyzer = 波浪斐波那契分析器(df, 觀察週期=200) 
-            # result = analyzer.執行分析()
-            
-            # --- 模擬結果展示 (實際使用时請替換為真實調用) ---
-            st.success(f"✅ {ticker} 分析完成！")
-            
-            col1, col2, col3 = st.columns(3)
-            col1.metric("現價", f"{df['close'].iloc[-1]:.2f}")
-            col2.metric("趨勢判斷", "多頭回調") # 替換為 result['波浪週期']['趨勢']
-            col3.metric("操作建議", "分批加倉") # 替換為 result['最終指示']
+    def _計算ATR(self):
+        high, low, close = self.df['High'], self.df['Low'], self.df['Close']
+        tr = pd.concat([high-low, abs(high-close.shift(1)), abs(low-close.shift(1))], axis=1).max(axis=1)
+        self.ATR值 = tr.rolling(14).mean().iloc[-1]
 
-            # 3. 顯示圖表
-            st.subheader("技術走勢與斐波那契區間")
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.plot(df['date'], df['close'], label='Close Price')
-            ax.axhline(y=df['close'].mean(), color='r', linestyle='--', label='Mean Line')
-            ax.legend()
-            st.pyplot(fig)
+    def _識別波段(self):
+        highs = argrelextrema(self.df['High'].values, np.greater, order=8)[0]
+        lows = argrelextrema(self.df['Low'].values, np.less, order=8)[0]
+        return self.df.iloc[highs]['High'].tail(3), self.df.iloc[lows]['Low'].tail(3)
+
+    def _計算斐波那契(self, start_idx, end_idx, direction):
+        s_p, e_p = self.df.iloc[start_idx]['Low'], self.df.iloc[end_idx]['High'] if direction=='up' else (self.df.iloc[start_idx]['High'], self.df.iloc[end_idx]['Low'])
+        range_p = abs(e_p - s_p)
+        base = e_p if direction=='up' else s_p
+        self.斐波區間['回撤'] = {l: base - range_p*l if direction=='up' else base + range_p*l for l in self.FIB_LEVELS['回撤支撐']}
+        self.斐波區間['擴展'] = {l: base + range_p*(l-1) if direction=='up' else base - range_p*(l-1) for l in self.FIB_LEVELS['擴展目標']}
+
+    def 執行分析(self):
+        self._計算均線()
+        self._計算量價()
+        self._計算ATR()
+        highs, lows = self._識別波段()
+        if len(highs)<2 or len(lows)<2: return {'狀態': '數據不足'}
+        
+        curr_p = self.df['Close'].iloc[-1]
+        last_h, prev_h = highs.iloc[-1], highs.iloc[-2]
+        last_l, prev_l = lows.iloc[-1], lows.iloc[-2]
+        
+        is_up = (last_h > prev_h) and (last_l > prev_l)
+        if is_up:
+            self._計算斐波那契(lows.index[-2], highs.index[-1], 'up')
+            state = "延伸浪" if curr_p > last_h else ("強勢回調" if curr_p >= self.斐波區間['回撤'][0.382] else "深度回調")
+            action = "持有/減倉" if curr_p > last_h else ("逢低加倉" if curr_p >= self.斐波區間['回撤'][0.382] else "分批建倉")
+        else:
+            self._計算斐波那契(highs.index[-2], lows.index[-1], 'down')
+            state = "延伸下跌" if curr_p < last_l else "弱勢反彈"
+            action = "觀望" if curr_p < last_l else "反彈減倉"
             
-            # 4. 顯示詳細數據表格
-            st.subheader("進出場價位參考")
-            # st.json(result['動態進出場']) # 如果用了真實類
+        return {'現價': curr_p, '趨勢': '多頭' if is_up else '空頭', '週期': state, '操作': action, 'ATR': self.ATR值}
+
+    def 繪圖(self):
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(self.df['Date'], self.df['Close'], label='Price', color='black')
+        ax.plot(self.df['Date'], self.df['MA20'], label='MA20', linestyle='--', alpha=0.5)
+        if self.斐波區間:
+            for l, p in self.斐波區間.get('回撤', {}).items():
+                ax.axhline(p, color='green', linestyle=':', alpha=0.3)
+        ax.legend(loc='upper left')
+        return fig
+
+# === Streamlit 界面邏輯 ===
+@st.cache_data(ttl=3600)
+def get_data(ticker, period):
+    try:
+        df = yf.download(ticker, period=period, progress=False)
+        if df.empty: return None
+        df.reset_index(inplace=True)
+        df.columns = [c.lower() for c in df.columns]
+        if 'adj close' in df.columns: df.drop(columns=['adj close'], inplace=True)
+        return df
+    except: return None
+
+st.title("📈 股票波浪斐波那契分析系統")
+with st.sidebar:
+    ticker = st.text_input("股票代碼 (例: 09988.HK)", "09988.HK")
+    period = st.selectbox("時間範圍", ["1y", "2y"], index=0)
+    btn = st.button("開始分析", type="primary")
+
+if btn:
+    with st.spinner('雲端計算中...'):
+        df = get_data(ticker, period)
+        if df is not None:
+            analyzer = 波浪斐波那契分析器(df)
+            res = analyzer.執行分析()
             
-        except Exception as e:
-            st.error(f"發生錯誤: {str(e)}")
-else:
-    st.info("👈 請在左側輸入股票代碼並點擊「開始分析」")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("現價", f"{res['現價']:.2f}")
+            c2.metric("趨勢", res['趨勢'])
+            c3.metric("建議", res['操作'])
+            
+            st.info(f"**詳細狀態:** {res['週期']} | **ATR波動率:** {res['ATR']:.2f}")
+            
+            tab1, tab2 = st.tabs(["走勢圖", "詳細價位"])
+            with tab1:
+                st.pyplot(analyzer.繪圖())
+            with tab2:
+                st.json({"斐波那契回撤": analyzer.斐波區間.get('回撤', {})})
+        else:
+            st.error("無法獲取數據，請檢查代碼。")
