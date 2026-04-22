@@ -27,14 +27,20 @@ if st.sidebar.button("開始分析"):
             
             # 重置索引以符合我們類的格式
             df.reset_index(inplace=True)
-            # 確保列名小寫
-            df.columns = [col.lower() for col in df.columns]
+            
+            # 確保列名小寫 - 處理 MultiIndex 和 tuple 的情況
+            if isinstance(df.columns, pd.MultiIndex):
+                # 如果是 MultiIndex，展平它
+                df.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col for col in df.columns]
+            else:
+                # 普通列名，直接轉小寫
+                df.columns = [col.lower() if isinstance(col, str) else '_'.join(col).strip() if isinstance(col, tuple) else str(col) for col in df.columns]
+            
             # 處理多級索引問題 (yfinance有時會返回MultiIndex)
-            if 'adj close' in df.columns:
-                df.drop(columns=['adj close'], inplace=True)
+            if 'adj_close' in df.columns:
+                df.drop(columns=['adj_close'], inplace=True)
 
             # 2. 初始化分析器 (這裡需要您將之前的類代碼複製過來或導入)
-            # 為了演示，這裡假設您已經將 '波浪斐波那契分析器' 類定義在這個文件或導入
             # analyzer = 波浪斐波那契分析器(df, 觀察週期=200) 
             # result = analyzer.執行分析()
             
@@ -43,8 +49,8 @@ if st.sidebar.button("開始分析"):
             
             col1, col2, col3 = st.columns(3)
             col1.metric("現價", f"{df['close'].iloc[-1]:.2f}")
-            col2.metric("趨勢判斷", "多頭回調") # 替換為 result['波浪週期']['趨勢']
-            col3.metric("操作建議", "分批加倉") # 替換為 result['最終指示']
+            col2.metric("趨勢判斷", "多頭回調")  # 替換為 result['波浪週期']['趨勢']
+            col3.metric("操作建議", "分批加倉")  # 替換為 result['最終指示']
 
             # 3. 顯示圖表
             st.subheader("技術走勢與斐波那契區間")
@@ -56,6 +62,7 @@ if st.sidebar.button("開始分析"):
             
             # 4. 顯示詳細數據表格
             st.subheader("進出場價位參考")
+            st.dataframe(df.tail(10), use_container_width=True)
             # st.json(result['動態進出場']) # 如果用了真實類
             
         except Exception as e:
