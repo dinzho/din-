@@ -12,9 +12,8 @@ st.title("📈 智能股票技術分析系統 (Streamlit版)")
 
 # 側邊欄輸入
 st.sidebar.header("參數設定")
-ticker = st.sidebar.text_input("股票代碼 (例如: 09988.HK, AAPL)", "09988.HK")
+ticker = st.sidebar.text_input("股票代碼 (例如: 09988.HK, AAPL)", "AAPL")
 
-# 新增：时间周期选择
 timeframe = st.sidebar.selectbox(
     "K線級別",
     ["日線 (1d)", "周線 (1wk)", "月線 (1mo)", "小时线 (1h)"],
@@ -45,7 +44,7 @@ if st.sidebar.button("開始分析"):
             # 重置索引
             df = df.reset_index()
             
-            # 處理列名 - 支援 MultiIndex
+            # 處理列名
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = ['_'.join(col).strip().lower() for col in df.columns]
             else:
@@ -74,13 +73,6 @@ if st.sidebar.button("開始分析"):
                 '78.6%': low_price + (high_price - low_price) * 0.786,
                 '100%': high_price
             }
-            
-            # 計算進出場位
-            support_level = fib_levels['38.2%']
-            resistance_level = fib_levels['61.8%']
-            stop_loss = current_price * 0.95
-            take_profit_1 = current_price * 1.05
-            take_profit_2 = current_price * 1.10
 
             # 3. 顯示結果
             st.success(f"✅ {ticker} ({timeframe}) 分析完成！")
@@ -94,11 +86,8 @@ if st.sidebar.button("開始分析"):
             # 4. 顯示圖表
             st.subheader(f"📊 {timeframe}技術走勢與斐波那契區間")
             fig, ax = plt.subplots(figsize=(12, 6))
+            ax.plot(df['date'], df['close'], label='收盤價', linewidth=2)
             
-            # 繪製價格線
-            ax.plot(df['date'], df['close'], label='收盤價', linewidth=2, color='#1f77b4')
-            
-            # 繪製斐波那契回撤位
             for level, price in fib_levels.items():
                 ax.axhline(y=price, linestyle='--', alpha=0.5, label=f'{level}: {price:.2f}')
             
@@ -126,17 +115,14 @@ if st.sidebar.button("開始分析"):
                 st.success("📤 **出場建議**")
                 st.write(f"- 斐波那契 78.6%: {fib_levels['78.6%']:.2f}")
                 st.write(f"- 近期阻力: {high_price:.2f}")
-                st.write(f"- 止損位: {stop_loss:.2f} (-5%)")
-                st.write(f"- 目標價1: {take_profit_1:.2f} (+5%)")
-                st.write(f"- 目標價2: {take_profit_2:.2f} (+10%)")
+                st.write(f"- 止損位: {current_price * 0.95:.2f} (-5%)")
+                st.write(f"- 目標價1: {current_price * 1.05:.2f} (+5%)")
             
-            # 6. 顯示詳細數據表格
+            # 6. 顯示數據表格
             st.subheader("📋 最近10根K線數據")
             st.dataframe(df.tail(10), use_container_width=True)
             
         except Exception as e:
             st.error(f"❌ 發生錯誤: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
 else:
     st.info("👈 請在左側輸入股票代碼並點擊「開始分析」")
